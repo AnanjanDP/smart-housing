@@ -1,0 +1,146 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: staymatch-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-staymatch_db}
+      POSTGRES_USER: ${POSTGRES_USER:-staymatch_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-staymatch_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-staymatch_user} -d ${POSTGRES_DB:-staymatch_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: staymatch-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./infrastructure/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: staymatch-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: staymatch-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  core-api:
+    build:
+      context: ./services/core-api
+      dockerfile: Dockerfile
+    container_name: staymatch-core-api
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./services/core-api:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=True
+      - POSTGRES_DB=${POSTGRES_DB:-staymatch_db}
+      - POSTGRES_USER=${POSTGRES_USER:-staymatch_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-staymatch_password}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
+
+  search-service:
+    build:
+      context: ./services/search-service
+      dockerfile: Dockerfile
+    container_name: staymatch-search-service
+    ports:
+      - "8001:8001"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-staymatch_db}
+      - POSTGRES_USER=${POSTGRES_USER:-staymatch_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-staymatch_password}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  recommendation-service:
+    build:
+      context: ./services/recommendation-service
+      dockerfile: Dockerfile
+    container_name: staymatch-recommendation-service
+    ports:
+      - "8002:8002"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-staymatch_db}
+      - POSTGRES_USER=${POSTGRES_USER:-staymatch_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-staymatch_password}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: staymatch-notification-service
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_started
+
+  nginx:
+    build:
+      context: ./infrastructure/nginx
+      dockerfile: Dockerfile
+    container_name: staymatch-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - core-api
+      - search-service
+      - recommendation-service
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: staymatch-prometheus
+    volumes:
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+volumes:
+  postgres_data:

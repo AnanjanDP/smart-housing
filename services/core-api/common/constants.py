@@ -1,0 +1,9 @@
+# System Constants
+KAFKA_TOPIC_LISTINGS = 'listing_events'
+KAFKA_TOPIC_APPLICATIONS = 'application_events'
+KAFKA_TOPIC_REVIEWS = 'review_events'
+KAFKA_TOPIC_NOTIFICATIONS = 'notification_events'
+
+USER_ROLE_TENANT = 'TENANT'
+USER_ROLE_LANDLORD = 'LANDLORD'
+USER_ROLE_ADMIN = 'ADMIN'
