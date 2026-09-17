@@ -17,3 +17,8 @@ def get_user_recommendations(user_id: str):
 def compute_roommate_compatibility(payload: RoommateCompatibilityRequest):
     score, summary = comp_engine.evaluate_pair(payload)
     return RoommateCompatibilityResponse(compatibility_score=score, summary=summary)
+
+@router.get("/health")
+def router_health():
+    return {"status": "healthy", "service": "recommendation-service"}
+

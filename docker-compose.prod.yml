@@ -1,0 +1,155 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: staymatch-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-staymatch_prod_db}
+      POSTGRES_USER: ${POSTGRES_USER:-staymatch_prod_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password required}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-staymatch_prod_user} -d ${POSTGRES_DB:-staymatch_prod_db}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: staymatch-redis-prod
+    restart: always
+    command: redis-server --save 60 1 --loglevel notice
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: staymatch-zookeeper-prod
+    restart: always
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: staymatch-kafka-prod
+    restart: always
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  core-api:
+    build:
+      context: ./services/core-api
+      dockerfile: Dockerfile
+    container_name: staymatch-core-api-prod
+    restart: always
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --access-logfile - --error-logfile -
+    environment:
+      - DEBUG=False
+      - SECRET_KEY=${SECRET_KEY:?Secret key required}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,core-api}
+      - POSTGRES_DB=${POSTGRES_DB:-staymatch_prod_db}
+      - POSTGRES_USER=${POSTGRES_USER:-staymatch_prod_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Database password required}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
+
+  celery-worker:
+    build:
+      context: ./services/core-api
+      dockerfile: Dockerfile
+    container_name: staymatch-celery-worker-prod
+    restart: always
+    command: celery -A config worker --loglevel=info
+    environment:
+      - SECRET_KEY=${SECRET_KEY:?Secret key required}
+      - POSTGRES_DB=${POSTGRES_DB:-staymatch_prod_db}
+      - POSTGRES_USER=${POSTGRES_USER:-staymatch_prod_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Database password required}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      - postgres
+      - redis
+
+
+  search-service:
+    build:
+      context: ./services/search-service
+      dockerfile: Dockerfile
+    container_name: staymatch-search-service-prod
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 4
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-staymatch_prod_db}
+      - POSTGRES_USER=${POSTGRES_USER:-staymatch_prod_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Database password required}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  recommendation-service:
+    build:
+      context: ./services/recommendation-service
+      dockerfile: Dockerfile
+    container_name: staymatch-recommendation-service-prod
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --workers 4
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-staymatch_prod_db}
+      - POSTGRES_USER=${POSTGRES_USER:-staymatch_prod_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Database password required}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: staymatch-notification-service-prod
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_started
+
+  nginx:
+    build:
+      context: ./infrastructure/nginx
+      dockerfile: Dockerfile
+    container_name: staymatch-nginx-prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - core-api
+      - search-service
+      - recommendation-service
+
+volumes:
+  postgres_prod_data:

@@ -25,3 +25,8 @@ def search_listings(payload: SearchQueryRequest):
         mode="hybrid_rrf",
         results=results[:payload.limit]
     )
+
+@router.get("/health")
+def router_health():
+    return {"status": "healthy", "service": "search-service"}
+

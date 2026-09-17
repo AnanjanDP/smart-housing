@@ -1,11 +1,12 @@
+import sys
 import time
+from app.consumers.kafka_consumer import NotificationKafkaConsumerRunner
 
 def main():
     print("=== StayMatch Notification Service Worker Initialized ===")
-    print("Listening for Kafka events on topics: listing_events, application_events, review_events...")
+    runner = NotificationKafkaConsumerRunner()
     try:
-        while True:
-            time.sleep(10)
+        runner.start_listening()
     except KeyboardInterrupt:
         print("Stopping Notification Service Worker...")
 

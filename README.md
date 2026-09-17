@@ -1,26 +1,60 @@
-# StayMatch - Smart Housing & Roommate Matching Platform
+# StayMatch
 
-StayMatch is an enterprise-grade, microservice-powered smart housing platform. It connects prospective tenants with verified housing listings and calculates AI-powered roommate compatibility scores.
+StayMatch is a microservice-based housing platform that connects tenants with verified property listings and computes roommate compatibility scores.
 
-## System Architecture Overview
+## Quick start
+
+You can run the full stack locally using Docker Compose. Make sure you have Docker and Docker Desktop installed.
+
+Copy the environment variable template first:
+
+```bash
+cp .env.example .env
+```
+
+Start all microservices and the Nginx reverse proxy:
+
+```bash
+docker compose up -d --build
+```
+
+Seed the database with sample property listings and roommate profiles:
+
+```bash
+python scripts/seed_database.py
+```
+
+Once the containers start up, open your browser and head to `http://localhost:8000`.
+
+### Service endpoints
+
+- Frontend SPA: http://localhost:8000
+- Core API (Django): http://localhost:8000/api/v1/
+- Search service (FastAPI): http://localhost:8001/docs
+- Recommendation service (FastAPI): http://localhost:8002/docs
+- Prometheus metrics: http://localhost:9090
+
+## Architecture
+
+StayMatch separates concerns across four backend services, a React frontend, and an event pipeline driven by Apache Kafka. Nginx acts as the primary gateway routing traffic to downstream containers.
 
 ```
-                      +-------------------+
-                      |   React Frontend  |
-                      +---------+---------+
-                                |
-                                v
-                      +-------------------+
-                      |    Nginx Proxy    |
-                      +---------+---------+
-                                |
-         +----------------------+----------------------+
-         |                      |                      |
-         v                      v                      v
+                  +-------------------+
+                  |   React Frontend  |
+                  +---------+---------+
+                            |
+                            v
+                  +-------------------+
+                  |    Nginx Proxy    |
+                  +---------+---------+
+                            |
+     +----------------------+----------------------+
+     |                      |                      |
+     v                      v                      v
 +------------------+  +------------------+  +-------------------+
-|  Core Django API |  | Search Service   |  | Recommendation    |
-| (Auth, Listings, |  | (Vector & Hybrid |  | Service (Matching |
-|  Roommates, DB)  |  |  FastAPI)        |  |  ML Engine)       |
+|  Core API        |  | Search Service   |  | Recommendation    |
+| (Auth, Listings, |  | (Vector Search)  |  | Service (Matching)|
+|  Roommates, DB)  |  | (FastAPI)        |  | (FastAPI)         |
 +--------+---------+  +--------+---------+  +---------+---------+
          |                     |                      |
          +---------------------+----------------------+
@@ -32,44 +66,105 @@ StayMatch is an enterprise-grade, microservice-powered smart housing platform. I
                                |
                                v
                     +--------------------+
-                    | Notification Event |
-                    | Worker (Kafka Consumer)
+                    | Notification Worker|
                     +--------------------+
 ```
 
-## Services & Tech Stack
+## Service overview
 
-1. **Core API (`services/core-api`)**: Python 3.11, Django 5.0, Django REST Framework, PostgreSQL, Celery, Redis.
-2. **Search Microservice (`services/search-service`)**: FastAPI, Python 3.11, Vector Search, Trigram & Hybrid RRF ranking.
-3. **Recommendation Microservice (`services/recommendation-service`)**: FastAPI, Cosine Similarity matching algorithms, Roommate compatibility engine.
-4. **Notification Service (`services/notification-service`)**: Python Kafka event consumer for automated email & push alerts.
-5. **Frontend (`frontend`)**: React 18, Axios, Lucide Icons, Modern CSS Design System.
-6. **Infrastructure**: Docker Compose, Nginx, PostgreSQL, Redis, Apache Kafka, Prometheus & Grafana.
+- **Core API (`services/core-api`)**: Built with Django 5.0 and Django REST Framework. Manages tenant and landlord authentication, user profiles, housing applications, and property listings backed by PostgreSQL.
+- **Search service (`services/search-service`)**: Built with FastAPI. Handles vector similarity search and trigram text matching across property listings.
+- **Recommendation service (`services/recommendation-service`)**: Built with FastAPI. Computes compatibility percentages between roommate candidates based on budget, lifestyle choices, and dealbreaker filters.
+- **Notification service (`services/notification-service`)**: Event-driven worker that consumes Kafka topics to trigger email notifications when users submit rental applications or message potential roommates.
+- **Frontend (`frontend`)**: React 18 single-page application built with Vite and Lucide icons. Includes dual light/dark theme modes, property upload modals, and real-time roommate chat dialogs.
 
-## Quickstart
+## Environment variables
 
-### Prerequisites
-- Docker & Docker Compose
-- Python 3.11+
-- Node.js 18+ & npm
+The application reads system configuration from `.env`. The key variables required for local development include:
 
-### Running with Docker Compose
+| Variable | Description | Default |
+| --- | --- | --- |
+| `DEBUG` | Enables Django debug mode | `True` |
+| `SECRET_KEY` | Secret key for JWT signing | `django-insecure-...` |
+| `POSTGRES_DB` | Main database name | `postgres` |
+| `POSTGRES_USER` | Main database user | `postgres` |
+| `POSTGRES_PASSWORD` | Main database password | `daspo_95278` |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker host and port | `kafka:9092` |
+| `VITE_SUPABASE_URL` | Supabase auth endpoint | Optional for OAuth |
+| `VITE_SUPABASE_ANON_KEY` | Supabase public key | Optional for OAuth |
+
+## Running locally without Docker
+
+If you prefer to run services individually for development, start PostgreSQL, Redis, and Kafka first.
+
+### Backend setup
+
+Install dependencies inside virtual environments for each service:
+
 ```bash
-# 1. Clone & copy environment template
-cp .env.example .env
-
-# 2. Start all services
-make up
-
-# 3. Provision Kafka topics & seed database
-make seed
+# Core API
+cd services/core-api
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver 8000
 ```
 
-### Accessing Services
-- **Frontend SPA**: [http://localhost:3000](http://localhost:3000)
-- **Nginx Gateway**: [http://localhost:8000](http://localhost:8000)
-- **Django Core API**: [http://localhost:8000/api/v1/](http://localhost:8000/api/v1/)
-- **Search API Docs**: [http://localhost:8001/docs](http://localhost:8001/docs)
-- **Recommendation API Docs**: [http://localhost:8002/docs](http://localhost:8002/docs)
-- **Prometheus**: [http://localhost:9090](http://localhost:9090)
-- **Grafana**: [http://localhost:3000](http://localhost:3000) (admin / admin)
+```bash
+# Search service
+cd services/search-service
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --port 8001 --reload
+```
+
+```bash
+# Recommendation service
+cd services/recommendation-service
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --port 8002 --reload
+```
+
+### Frontend setup
+
+Install dependencies and start the Vite dev server:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The dev server starts on `http://localhost:5173`.
+
+## Database seeding
+
+To populate your database with sample listings and roommate profiles:
+
+```bash
+python scripts/seed_database.py
+```
+
+This populates sample properties with image URLs, pricing tiers, and pre-configured roommate profiles so you can test search and matching right away.
+
+## Running tests
+
+Pytest handles backend test suites across the services:
+
+```bash
+# Core API tests
+cd services/core-api
+pytest
+
+# Search service tests
+cd ../search-service
+pytest
+
+# Recommendation service tests
+cd ../recommendation-service
+pytest
+```
