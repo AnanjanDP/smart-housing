@@ -88,7 +88,7 @@ The application reads system configuration from `.env`. The key variables requir
 | `SECRET_KEY` | Secret key for JWT signing | `django-insecure-...` |
 | `POSTGRES_DB` | Main database name | `postgres` |
 | `POSTGRES_USER` | Main database user | `postgres` |
-| `POSTGRES_PASSWORD` | Main database password | `daspo_95278` |
+| `POSTGRES_PASSWORD` | Main database password | `the_password` |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker host and port | `kafka:9092` |
 | `VITE_SUPABASE_URL` | Supabase auth endpoint | Optional for OAuth |
 | `VITE_SUPABASE_ANON_KEY` | Supabase public key | Optional for OAuth |
