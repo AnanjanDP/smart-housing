@@ -9,6 +9,7 @@ from apps.listings.models import Listing
 from apps.listings.serializers import ListingSerializer
 from apps.listings.filters import ListingFilter
 from apps.listings.permissions import CanPublishListings, IsListingOwnerOrReadOnly
+from apps.listings.services import ListingService
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class ListingViewSet(viewsets.ModelViewSet):
         return response
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        serializer.instance = ListingService.create_listing(self.request.user, dict(serializer.validated_data))
         self.clear_cache()
 
     def perform_update(self, serializer):

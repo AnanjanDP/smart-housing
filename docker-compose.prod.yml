@@ -97,6 +97,30 @@ services:
       - redis
 
 
+  outbox-relay:
+    build:
+      context: ./services/core-api
+      dockerfile: Dockerfile
+    container_name: staymatch-outbox-relay-prod
+    restart: always
+    command: python manage.py relay_outbox
+    environment:
+      - SECRET_KEY=${SECRET_KEY:?Secret key required}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:?Allowed hosts required}
+      - POSTGRES_DB=${POSTGRES_DB:-staymatch_prod_db}
+      - POSTGRES_USER=${POSTGRES_USER:-staymatch_prod_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Database password required}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Redis password required}@redis:6379/0
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+
   search-service:
     build:
       context: ./services/search-service
@@ -153,8 +177,16 @@ services:
     restart: always
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Redis password required}@redis:6379/0
+      - SMTP_HOST=${SMTP_HOST:?SMTP host required}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:?SMTP user required}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:?SMTP password required}
+      - FROM_EMAIL=${FROM_EMAIL:-no-reply@staymatch.com}
     depends_on:
       kafka:
+        condition: service_started
+      redis:
         condition: service_started
 
   nginx:

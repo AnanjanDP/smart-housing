@@ -2,6 +2,7 @@ from rest_framework import viewsets, permissions
 from apps.reviews.models import Review
 from apps.reviews.permissions import IsReviewAuthorOrReadOnly
 from apps.reviews.serializers import ReviewSerializer
+from apps.reviews.services import ReviewService
 
 class ReviewViewSet(viewsets.ModelViewSet):
     queryset = Review.objects.all()
@@ -10,4 +11,4 @@ class ReviewViewSet(viewsets.ModelViewSet):
     filterset_fields = ['listing', 'target_user', 'rating']
 
     def perform_create(self, serializer):
-        serializer.save(reviewer=self.request.user)
+        ReviewService.create_review(serializer, self.request.user)

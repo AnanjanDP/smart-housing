@@ -1,8 +1,10 @@
+from django.db import transaction
 from django.db.models import Q
 from rest_framework import viewsets, permissions
 from rest_framework.exceptions import PermissionDenied
 from apps.applications.models import Application
 from apps.applications.serializers import ApplicationSerializer, ACTIVE_STATUSES
+from apps.applications.services import ApplicationService
 
 
 class ApplicationViewSet(viewsets.ModelViewSet):
@@ -20,7 +22,20 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer):
-        serializer.save(applicant=self.request.user)
+        data = serializer.validated_data
+        serializer.instance = ApplicationService.submit_application(
+            applicant=self.request.user,
+            listing=data['listing'],
+            move_in_date=data['move_in_date'],
+            notes=data.get('notes'),
+        )
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            previous_status = serializer.instance.status
+            application = serializer.save()
+            if application.status != previous_status:
+                ApplicationService.announce_status_change(application)
 
     def perform_destroy(self, instance):
         # Applicants may withdraw an open application; a landlord cannot delete the applicant's record
