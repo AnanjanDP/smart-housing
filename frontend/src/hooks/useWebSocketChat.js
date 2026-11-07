@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { refreshAccessToken } from '../services/api';
 
 const AUTH_DENIED_CODES = [4401, 4403];
 
@@ -26,6 +27,8 @@ export const useWebSocketChat = (roomId, initialMessages = [], options = {}) => 
   const [isConnected, setIsConnected] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
   const socketRef = useRef(null);
+  const renewedRef = useRef(false);
+  const [connectAttempt, setConnectAttempt] = useState(0);
 
   useEffect(() => {
     const token = localStorage.getItem('staymatch_token');
@@ -52,6 +55,7 @@ export const useWebSocketChat = (roomId, initialMessages = [], options = {}) => 
           const data = JSON.parse(event.data);
 
           if (data.type === 'connection_established') {
+            renewedRef.current = false;
             setIsConnected(true);
             return;
           }
@@ -89,6 +93,12 @@ export const useWebSocketChat = (roomId, initialMessages = [], options = {}) => 
 
       socket.onclose = (event) => {
         setIsConnected(false);
+        if (event.code === 4401 && !renewedRef.current) {
+          // The access token probably expired: renew it once and reconnect with the new one.
+          renewedRef.current = true;
+          refreshAccessToken().then(() => setConnectAttempt((n) => n + 1)).catch(() => setAccessDenied(true));
+          return;
+        }
         if (AUTH_DENIED_CODES.includes(event.code)) setAccessDenied(true);
       };
     } catch (e) {
@@ -104,7 +114,7 @@ export const useWebSocketChat = (roomId, initialMessages = [], options = {}) => 
         }
       }
     };
-  }, [roomId, selfId, otherSender]);
+  }, [roomId, selfId, otherSender, connectAttempt]);
 
   const sendMessage = useCallback((text, sender = 'user', senderName = '') => {
     if (!text || !text.trim()) return;

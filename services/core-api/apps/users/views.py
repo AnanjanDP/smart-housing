@@ -8,10 +8,11 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
-from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from apps.users.cookies import clear_refresh_cookie, read_refresh_cookie, set_refresh_cookie
 from apps.users.models import User
 from apps.users.oauth import (
     OAuthVerificationError,
@@ -33,6 +34,34 @@ class AuthThrottleMixin:
 class CustomTokenObtainPairView(AuthThrottleMixin, TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        refresh = response.data.pop('refresh', None) if response.status_code == 200 else None
+        if refresh:
+            set_refresh_cookie(response, refresh)
+        return response
+
+
+class CookieTokenRefreshView(TokenRefreshView):
+    """Issues a new access token (and rotates the refresh token) from the refresh cookie."""
+
+    def post(self, request, *args, **kwargs):
+        refresh = read_refresh_cookie(request)
+        if not refresh:
+            return Response({'detail': 'Not signed in.'}, status=status.HTTP_401_UNAUTHORIZED)
+        serializer = self.get_serializer(data={'refresh': refresh})
+        try:
+            serializer.is_valid(raise_exception=True)
+        except (TokenError, InvalidToken):
+            return clear_refresh_cookie(
+                Response({'detail': 'Session expired.'}, status=status.HTTP_401_UNAUTHORIZED))
+        data = dict(serializer.validated_data)
+        new_refresh = data.pop('refresh', None)
+        response = Response(data, status=status.HTTP_200_OK)
+        if new_refresh:
+            set_refresh_cookie(response, new_refresh)
+        return response
+
 class LogoutView(APIView):
     """Ends a session by blacklisting its refresh token, so it can't be used to mint new access tokens."""
     permission_classes = [permissions.AllowAny]  # an expired access token must not stop someone logging out
@@ -40,13 +69,13 @@ class LogoutView(APIView):
     throttle_scope = 'auth'
 
     def post(self, request):
-        refresh = request.data.get('refresh')
-        if isinstance(refresh, str) and refresh:
+        refresh = read_refresh_cookie(request)
+        if refresh:
             try:
                 RefreshToken(refresh).blacklist()
             except TokenError:
                 pass  # already expired or blacklisted: the goal (token unusable) is met
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return clear_refresh_cookie(Response(status=status.HTTP_204_NO_CONTENT))
 
 
 class RegisterView(AuthThrottleMixin, generics.CreateAPIView):
@@ -148,8 +177,8 @@ class OAuthOIDCLoginView(AuthThrottleMixin, APIView):
                 user.save()
 
         refresh = RefreshToken.for_user(user)
-        return Response({
+        response = Response({
             'access': str(refresh.access_token),
-            'refresh': str(refresh),
             'user': UserSerializer(user).data
         }, status=status.HTTP_200_OK)
+        return set_refresh_cookie(response, refresh)

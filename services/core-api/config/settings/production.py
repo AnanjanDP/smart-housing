@@ -42,6 +42,7 @@ REST_FRAMEWORK = {**REST_FRAMEWORK, 'NUM_PROXIES': int(os.getenv('NUM_PROXIES', 
 # Security headers and cookie flags
 SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'False') == 'True'  # nginx redirects http to https
 SESSION_COOKIE_SECURE = True
+REFRESH_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'

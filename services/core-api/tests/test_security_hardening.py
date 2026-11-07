@@ -23,7 +23,7 @@ READ_SETTINGS = (
     "import json, django; from django.conf import settings as s; "
     "print(json.dumps({'debug': s.DEBUG, 'hosts': s.ALLOWED_HOSTS, 'session_secure': s.SESSION_COOKIE_SECURE, "
     "'csrf_secure': s.CSRF_COOKIE_SECURE, 'hsts': s.SECURE_HSTS_SECONDS, 'proxies': s.REST_FRAMEWORK['NUM_PROXIES'], "
-    "'cors_all': s.CORS_ALLOW_ALL_ORIGINS, 'cors': s.CORS_ALLOWED_ORIGINS, 'proxy_header': s.SECURE_PROXY_SSL_HEADER}))"
+    "'cors_all': s.CORS_ALLOW_ALL_ORIGINS, 'refresh_secure': s.REFRESH_COOKIE_SECURE, 'cors': s.CORS_ALLOWED_ORIGINS, 'proxy_header': s.SECURE_PROXY_SSL_HEADER}))"
 )
 
 
@@ -86,6 +86,8 @@ class ProductionSettingsTests(APITestCase):
 
 @override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
 class TokenLifecycleTests(APITestCase):
+    COOKIE = "staymatch_refresh"
+
     def setUp(self):
         self.user = User.objects.create_user(
             email="member@example.com", username="member", password="Sup3rSecret!pass", role="TENANT")
@@ -93,29 +95,77 @@ class TokenLifecycleTests(APITestCase):
     def login(self):
         response = self.client.post("/api/v1/users/login/", {"email": "member@example.com", "password": "Sup3rSecret!pass"})
         self.assertEqual(response.status_code, 200)
-        return response.data
+        return response
+
+    def set_cookie(self, value):
+        self.client.cookies[self.COOKIE] = value
 
     def test_access_tokens_are_short_lived(self):
         self.assertLessEqual(settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"], timedelta(minutes=15))
 
+    def test_the_refresh_token_is_only_ever_in_an_httponly_cookie(self):
+        response = self.login()
+        self.assertNotIn("refresh", response.data)
+        self.assertIn("access", response.data)
+        cookie = response.cookies[self.COOKIE]
+        self.assertTrue(cookie["httponly"])
+        self.assertEqual(cookie["samesite"], "Strict")
+        self.assertEqual(cookie["path"], "/api/v1/users/")
+        self.assertGreater(len(cookie.value), 50)
+
+    def test_the_refresh_endpoint_uses_the_cookie_and_rotates_it(self):
+        first = self.login().cookies[self.COOKIE].value
+        response = self.client.post("/api/v1/users/token/refresh/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data)
+        self.assertNotIn("refresh", response.data)
+        rotated = response.cookies[self.COOKIE]
+        self.assertTrue(rotated["httponly"])
+        self.assertNotEqual(rotated.value, first)
+
     def test_a_refresh_token_can_only_be_used_once(self):
-        tokens = self.login()
-        first = self.client.post("/api/v1/users/token/refresh/", {"refresh": tokens["refresh"]})
-        self.assertEqual(first.status_code, 200)
-        self.assertNotEqual(first.data["refresh"], tokens["refresh"])
-        replay = self.client.post("/api/v1/users/token/refresh/", {"refresh": tokens["refresh"]})
-        self.assertEqual(replay.status_code, 401)
+        first = self.login().cookies[self.COOKIE].value
+        self.assertEqual(self.client.post("/api/v1/users/token/refresh/").status_code, 200)
+        self.set_cookie(first)  # replay the old one
+        self.assertEqual(self.client.post("/api/v1/users/token/refresh/").status_code, 401)
 
-    def test_logout_makes_the_refresh_token_useless(self):
-        tokens = self.login()
-        response = self.client.post("/api/v1/users/logout/", {"refresh": tokens["refresh"]})
+    def test_refreshing_without_the_cookie_fails(self):
+        self.assertEqual(self.client.post("/api/v1/users/token/refresh/").status_code, 401)
+
+    def test_a_refresh_token_in_the_request_body_is_ignored(self):
+        first = self.login().cookies[self.COOKIE].value
+        self.client.cookies.clear()
+        response = self.client.post("/api/v1/users/token/refresh/", {"refresh": first})
+        self.assertEqual(response.status_code, 401)
+
+    def test_a_bad_cookie_is_rejected_and_cleared(self):
+        self.set_cookie("not-a-token")
+        response = self.client.post("/api/v1/users/token/refresh/")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.cookies[self.COOKIE].value, "")
+
+    def test_an_access_token_cannot_be_used_as_a_refresh_token(self):
+        access = self.login().data["access"]
+        self.set_cookie(access)
+        self.assertEqual(self.client.post("/api/v1/users/token/refresh/").status_code, 401)
+
+    def test_logout_makes_the_refresh_token_useless_and_clears_the_cookie(self):
+        value = self.login().cookies[self.COOKIE].value
+        response = self.client.post("/api/v1/users/logout/")
         self.assertEqual(response.status_code, 204)
-        after = self.client.post("/api/v1/users/token/refresh/", {"refresh": tokens["refresh"]})
-        self.assertEqual(after.status_code, 401)
+        self.assertEqual(response.cookies[self.COOKIE].value, "")
+        self.set_cookie(value)
+        self.assertEqual(self.client.post("/api/v1/users/token/refresh/").status_code, 401)
 
-    def test_logout_with_junk_still_succeeds(self):
-        for body in ({}, {"refresh": ""}, {"refresh": "not-a-token"}, {"refresh": 5}):
-            self.assertEqual(self.client.post("/api/v1/users/logout/", body, format="json").status_code, 204)
+    def test_logout_without_a_session_still_succeeds(self):
+        self.assertEqual(self.client.post("/api/v1/users/logout/").status_code, 204)
+        self.set_cookie("junk")
+        self.assertEqual(self.client.post("/api/v1/users/logout/").status_code, 204)
+
+    def test_the_refresh_cookie_is_https_only_in_production(self):
+        code, out, err = load_production_settings(**GOOD_ENV)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(json.loads(out.strip().splitlines()[-1])["refresh_secure"])
 
 
 class ListingCacheTests(APITestCase):

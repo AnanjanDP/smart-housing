@@ -5,6 +5,8 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // The refresh token is an HttpOnly cookie; the browser attaches it, scripts never see it.
+  withCredentials: true,
 });
 
 api.interceptors.request.use((config) => {
@@ -15,15 +17,15 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Access tokens are short-lived. When one is rejected, renew it once with the refresh token and retry the
-// request; if that fails the session is over and the app is told to sign the user out.
+// Access tokens are short-lived. When one is rejected, renew it once (the refresh cookie is sent automatically)
+// and retry the request; if that fails the session is over and the app is told to sign the user out.
 export const SESSION_EXPIRED_EVENT = 'staymatch:session-expired';
 const NO_REFRESH_PATHS = ['users/login/', 'users/register/', 'users/oauth/login/', 'users/token/refresh/', 'users/logout/'];
 let refreshInFlight = null;
 
 export const saveTokens = (data) => {
   if (data?.access) localStorage.setItem('staymatch_token', data.access);
-  if (data?.refresh) localStorage.setItem('staymatch_refresh', data.refresh);
+  localStorage.removeItem('staymatch_refresh'); // older builds kept the refresh token here
 };
 
 export const clearTokens = () => {
@@ -31,12 +33,11 @@ export const clearTokens = () => {
   localStorage.removeItem('staymatch_refresh');
 };
 
-const renewAccessToken = () => {
+export const refreshAccessToken = () => {
   if (!refreshInFlight) {
-    const refresh = localStorage.getItem('staymatch_refresh');
     // A bare axios call, so the failure handler below cannot re-enter itself.
     refreshInFlight = axios
-      .post(`${api.defaults.baseURL}users/token/refresh/`, { refresh })
+      .post(`${api.defaults.baseURL}users/token/refresh/`, null, { withCredentials: true })
       .then((res) => {
         saveTokens(res.data);
         return res.data.access;
@@ -54,12 +55,13 @@ api.interceptors.response.use(
     const original = error.config;
     const status = error.response?.status;
     const skip = !original || original._retried || NO_REFRESH_PATHS.some((p) => original.url?.includes(p));
-    if (status !== 401 || skip || !localStorage.getItem('staymatch_refresh')) {
+    // Only a session that existed can be renewed; a visitor who was never signed in just gets the 401.
+    if (status !== 401 || skip || !localStorage.getItem('staymatch_token')) {
       return Promise.reject(error);
     }
     original._retried = true;
     try {
-      const access = await renewAccessToken();
+      const access = await refreshAccessToken();
       original.headers.Authorization = `Bearer ${access}`;
       return api(original);
     } catch (refreshError) {
@@ -71,10 +73,8 @@ api.interceptors.response.use(
 );
 
 export const logoutApi = async () => {
-  const refresh = localStorage.getItem('staymatch_refresh');
-  if (!refresh) return;
   try {
-    await api.post('users/logout/', { refresh });
+    await api.post('users/logout/'); // the server reads the refresh cookie and clears it
   } catch (e) {
     // Signing out locally still proceeds; the refresh token expires on its own.
   }

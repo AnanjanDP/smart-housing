@@ -131,8 +131,14 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
+# The refresh token lives in an HttpOnly cookie that scripts cannot read (see apps/users/cookies.py).
+REFRESH_COOKIE_NAME = 'staymatch_refresh'
+REFRESH_COOKIE_PATH = '/api/v1/users/'
+REFRESH_COOKIE_SECURE = False  # production sets True
+
 # CORS Settings
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True  # the refresh cookie must be accepted if the API is on another origin in development
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'

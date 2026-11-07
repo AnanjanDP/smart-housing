@@ -53,7 +53,7 @@ services:
       context: ./services/core-api
       dockerfile: Dockerfile
     container_name: staymatch-core-api
-    command: python manage.py runserver 0.0.0.0:8000
+    command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./services/core-api:/app
     ports:
