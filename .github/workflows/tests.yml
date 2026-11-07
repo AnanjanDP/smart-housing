@@ -26,6 +26,22 @@ jobs:
 
   search-service-tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: u
+          POSTGRES_PASSWORD: pw
+          POSTGRES_DB: test_trgm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U u -d test_trgm" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_POSTGRES_PORT: 5432
+      TEST_POSTGRES_DB: test_trgm
+      TEST_POSTGRES_USER: u
+      TEST_POSTGRES_PASSWORD: pw
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python

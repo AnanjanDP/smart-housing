@@ -78,6 +78,10 @@ class IndexManager:
     without locking, so a refresh never blocks or corrupts a search.
     """
 
+    @property
+    def repository(self):
+        return self._repo
+
     def __init__(
         self,
         repository,

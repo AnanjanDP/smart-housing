@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 
+from app.services.fuzzy_search import FuzzySearchEngine
 from app.services.index_manager import IndexManager, SearchFilters
 from app.services.keyword_search import KeywordSearchEngine
 from app.services.semantic_search import SemanticSearchEngine
@@ -45,4 +46,6 @@ class HybridSearchEngine:
         ]
         keyword = KeywordSearchEngine.search(query, candidates)[:pool]
         semantic = SemanticSearchEngine.search(manager, snapshot, query, pool, filters)
-        return HybridSearchEngine.fuse([keyword, semantic])
+        fuzzy = FuzzySearchEngine.search(manager, snapshot, query, pool, filters)
+        # Empty rankings (e.g. no database) simply contribute nothing to the fusion.
+        return HybridSearchEngine.fuse([keyword, semantic, fuzzy])

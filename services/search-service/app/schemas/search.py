@@ -8,7 +8,7 @@ class SearchQueryRequest(BaseModel):
     min_price: Optional[float] = None
     max_price: Optional[float] = None
     bedrooms: Optional[int] = None
-    mode: Literal["hybrid", "semantic", "keyword"] = "hybrid"
+    mode: Literal["hybrid", "semantic", "keyword", "fuzzy"] = "hybrid"
     limit: int = Field(default=20, ge=1, le=100)
 
 class SearchResultItem(BaseModel):

@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 LISTING_COLUMNS = "id::text, title, description, city, state, price, bedrooms, is_available, updated_at"
 
 
+FUZZY_FIELDS = ("title", "city", "state", "address")
+MAX_FUZZY_TERMS = 8
+
+
 class ListingRepositoryError(RuntimeError):
     """Raised when listings cannot be read; callers must not treat this as "no listings"."""
 
@@ -115,3 +119,37 @@ class ListingRepository:
             )
             row = cursor.fetchone()
             return row["owner_id"] if row else None
+
+    def fuzzy_search(self, terms: List[str], min_similarity: float = 0.45, limit: int = 100) -> List[Dict[str, Any]]:
+        """Typo-tolerant search with PostgreSQL trigrams (pg_trgm).
+
+        Each term is compared with the title, city, state and address using word_similarity, which scores the
+        best-matching stretch of the text, so "banglore" finds "Bangalore" and "studo" finds "studio". A term
+        counts when its best score reaches `min_similarity`; a listing's score is the mean over all terms, so
+        listings matching more of the query rank higher. Returns [{"id", "score"}], best first.
+        """
+        terms = [t for t in terms if t][:MAX_FUZZY_TERMS]
+        if not terms:
+            return []
+        best = "GREATEST(" + ", ".join(f"word_similarity(%s, {field})" for field in FUZZY_FIELDS) + ")"
+        # `<%%` (a literal `<%` once psycopg2 has processed the placeholders) is the indexable word-similarity operator (it uses the GIN indexes on these columns).
+        any_match = " OR ".join(f"%s <%% {field}" for field in FUZZY_FIELDS)
+        score_terms = " + ".join(f"CASE WHEN {best} >= %s THEN {best} ELSE 0 END" for _ in terms)
+        where_terms = " OR ".join(f"({any_match})" for _ in terms)
+
+        # Placeholders are filled in the order they appear in the SQL text.
+        score_params = []
+        for term in terms:
+            score_params += [term] * len(FUZZY_FIELDS) + [min_similarity] + [term] * len(FUZZY_FIELDS)
+        where_params = []
+        for term in terms:
+            where_params += [term] * len(FUZZY_FIELDS)
+
+        sql = (
+            f"SELECT id::text AS id, ({score_terms}) / {len(terms)}.0 AS score FROM listings_listing "
+            f"WHERE is_available = TRUE AND ({where_terms}) ORDER BY score DESC, id LIMIT %s;"
+        )
+        with self._cursor() as cursor:
+            cursor.execute("SET LOCAL pg_trgm.word_similarity_threshold = %s;", (min_similarity,))
+            cursor.execute(sql, score_params + where_params + [limit])
+            return [{"id": row["id"], "score": float(row["score"])} for row in cursor.fetchall() if row["score"] > 0]

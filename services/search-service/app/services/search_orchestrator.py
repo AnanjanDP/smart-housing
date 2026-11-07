@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
 from app.schemas.search import SearchQueryRequest
+from app.services.fuzzy_search import FuzzySearchEngine
 from app.services.hybrid_search import HybridSearchEngine
 from app.services.index_manager import IndexManager, SearchFilters
 from app.services.keyword_search import KeywordSearchEngine
@@ -27,6 +28,10 @@ def run_search(manager: IndexManager, payload: SearchQueryRequest) -> Tuple[str,
     if payload.mode == "keyword":
         candidates = [doc for doc in snapshot.docs.values() if filters.matches(doc)]
         return "keyword", KeywordSearchEngine.search(query, candidates)[:payload.limit], snapshot.version
+
+    if payload.mode == "fuzzy":
+        results = FuzzySearchEngine.search(manager, snapshot, query, payload.limit, filters)
+        return "fuzzy_trigram", results, snapshot.version
 
     if payload.mode == "semantic":
         results = SemanticSearchEngine.search(manager, snapshot, query, payload.limit, filters)

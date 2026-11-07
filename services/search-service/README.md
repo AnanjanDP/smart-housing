@@ -87,3 +87,11 @@ The Docker image installs CPU-only PyTorch and bakes the model into the image, s
 
 Close codes: 4401 not authenticated, 4403 forbidden, 4429 room full / flooding, 1009 frame too large, 1011 server error.
 Limits: 8 KB per frame, 2000 characters per message, 10 messages per 10 seconds, 10 connections per room.
+
+## Typo-tolerant search (pg_trgm)
+
+`mode: "fuzzy"` ranks listings by PostgreSQL trigram similarity (`word_similarity`) of each query term against the
+title, city, state and address, so "banglore" finds Bangalore. In `hybrid` mode it is a third ranking fused with the
+keyword and semantic ones; if the database query fails that leg is skipped. The GIN indexes come from core-api
+migration `listings.0002_trigram_indexes`. `tests/test_fuzzy_postgres.py` runs the query against a real PostgreSQL
+(see the file header; CI starts one).
