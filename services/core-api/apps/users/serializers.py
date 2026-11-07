@@ -25,6 +25,24 @@ class UserSerializer(serializers.ModelSerializer):
         full = f"{obj.first_name or ''} {obj.last_name or ''}".strip()
         return full if full else obj.username
 
+class PublicUserSerializer(serializers.ModelSerializer):
+    """What anyone may see about another user: who they are, never how to contact them.
+
+    Listing owners, reviewers and roommate profiles are visible to anonymous visitors, so they use this
+    instead of UserSerializer (which includes the email address and phone number).
+    """
+    name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ('id', 'username', 'first_name', 'last_name', 'name', 'avatar_url')
+        read_only_fields = fields
+
+    def get_name(self, obj):
+        full = f"{obj.first_name or ''} {obj.last_name or ''}".strip()
+        return full if full else obj.username
+
+
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, style={'input_type': 'password'})
     role = serializers.ChoiceField(choices=SELF_SERVICE_ROLES, default=User.Role.TENANT)

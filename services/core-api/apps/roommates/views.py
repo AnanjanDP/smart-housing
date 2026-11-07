@@ -28,7 +28,7 @@ class RoommateProfileViewSet(viewsets.ModelViewSet):
         cached_score = cache.get(cache_key)
         if cached_score is not None:
             return Response({
-                'target_user': target_profile.user.email,
+                'target_user': target_profile.user.username,
                 'compatibility_score': cached_score,
                 'cached': True
             })
@@ -37,7 +37,7 @@ class RoommateProfileViewSet(viewsets.ModelViewSet):
         cache.set(cache_key, score, timeout=600)  # Cache compatibility for 10 minutes
 
         return Response({
-            'target_user': target_profile.user.email,
+            'target_user': target_profile.user.username,
             'compatibility_score': score
         })
 

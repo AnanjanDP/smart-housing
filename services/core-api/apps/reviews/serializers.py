@@ -1,9 +1,9 @@
 from rest_framework import serializers
 from apps.reviews.models import Review
-from apps.users.serializers import UserSerializer
+from apps.users.serializers import PublicUserSerializer
 
 class ReviewSerializer(serializers.ModelSerializer):
-    reviewer = UserSerializer(read_only=True)
+    reviewer = PublicUserSerializer(read_only=True)
 
     class Meta:
         model = Review

@@ -1,9 +1,9 @@
 from rest_framework import serializers
 from apps.roommates.models import RoommateProfile
-from apps.users.serializers import UserSerializer
+from apps.users.serializers import PublicUserSerializer
 
 class RoommateProfileSerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)
+    user = PublicUserSerializer(read_only=True)
     cleanliness_level = serializers.IntegerField(min_value=1, max_value=5, required=False)
 
     class Meta:

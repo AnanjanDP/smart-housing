@@ -1,9 +1,9 @@
 from rest_framework import serializers
 from apps.listings.models import Listing
-from apps.users.serializers import UserSerializer
+from apps.users.serializers import PublicUserSerializer
 
 class ListingSerializer(serializers.ModelSerializer):
-    owner = UserSerializer(read_only=True)
+    owner = PublicUserSerializer(read_only=True)
 
     class Meta:
         model = Listing
