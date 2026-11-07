@@ -290,7 +290,9 @@ class IndexManager:
             "refresh_interval_seconds": self._refresh_interval,
             "last_refresh_at": self._last_refresh_at,
             "last_refresh": self._last_result.as_dict() if self._last_result else None,
-            "last_error": self._last_error,
+            # The detailed error stays in the logs: it can contain database host or user details, and
+            # this is reachable without authentication.
+            "last_error": "refresh failed, see service logs" if self._last_error else None,
         }
 
 

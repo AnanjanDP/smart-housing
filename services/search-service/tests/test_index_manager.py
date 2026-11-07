@@ -141,7 +141,8 @@ def test_database_failure_keeps_serving_the_previous_index(catalogue):
 
     assert manager.snapshot.size == 4
     assert top_ids(manager, "studio near the metro")[0] == "a"
-    assert "database is down" in manager.stats()["last_error"]
+    assert manager.stats()["last_error"] == "refresh failed, see service logs"
+    assert "database is down" not in str(manager.stats())
 
     repo.fail = False
     manager.refresh()
