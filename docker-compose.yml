@@ -168,6 +168,7 @@ services:
     ports:
       - "127.0.0.1:8002:8002"
     environment:
+      - JWT_SIGNING_KEY=${SECRET_KEY:-django-insecure-staymatch-default-key-change-me}
       - POSTGRES_DB=${POSTGRES_DB:-staymatch_db}
       - POSTGRES_USER=${POSTGRES_USER:-staymatch_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-staymatch_password}
