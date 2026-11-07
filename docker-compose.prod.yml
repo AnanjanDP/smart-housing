@@ -97,13 +97,25 @@ services:
       dockerfile: Dockerfile
     container_name: staymatch-search-service-prod
     restart: always
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 4
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 1
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-staymatch_prod_db}
       - POSTGRES_USER=${POSTGRES_USER:-staymatch_prod_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Database password required}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
+      - EMBEDDING_BACKEND=sentence-transformers
+      - VECTOR_INDEX_DIR=/data/vector_index
+      - INDEX_REFRESH_INTERVAL_SECONDS=${INDEX_REFRESH_INTERVAL_SECONDS:-60}
+      - SEARCH_ADMIN_TOKEN=${SEARCH_ADMIN_TOKEN:-}
+    volumes:
+      - search_index_prod:/data/vector_index
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
     depends_on:
       postgres:
         condition: service_healthy
@@ -153,3 +165,4 @@ services:
 
 volumes:
   postgres_prod_data:
+  search_index_prod:

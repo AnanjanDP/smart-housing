@@ -16,8 +16,9 @@ StayMatch is an AI-enhanced smart housing & roommate finding platform designed u
 
 3. **Search Service (`services/search-service`)**
    - Built with FastAPI.
-   - Executes trigram fuzzy keyword matching and vector semantic similarity queries.
-   - Combines scores using Reciprocal Rank Fusion (RRF).
+   - Embeds listings with a sentence-transformers model and searches them with an in-memory FAISS index (exact cosine similarity, filters applied inside the search).
+   - Keeps the index in sync with PostgreSQL by re-embedding only new or changed listings, and persists it so restarts are fast.
+   - Combines semantic and keyword rankings using Reciprocal Rank Fusion (RRF).
 
 4. **Recommendation Service (`services/recommendation-service`)**
    - Built with FastAPI.

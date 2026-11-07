@@ -100,8 +100,6 @@ services:
       context: ./services/search-service
       dockerfile: Dockerfile
     container_name: staymatch-search-service
-    volumes:
-      - ./services/search-service:/app
     ports:
       - "8001:8001"
     environment:
@@ -110,6 +108,19 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-staymatch_password}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
+      - EMBEDDING_BACKEND=${EMBEDDING_BACKEND:-sentence-transformers}
+      - VECTOR_INDEX_DIR=/data/vector_index
+      - INDEX_REFRESH_INTERVAL_SECONDS=${INDEX_REFRESH_INTERVAL_SECONDS:-60}
+      - SEARCH_ADMIN_TOKEN=${SEARCH_ADMIN_TOKEN:-}
+    volumes:
+      - ./services/search-service:/app
+      - search_index:/data/vector_index
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
     depends_on:
       postgres:
         condition: service_healthy
@@ -168,3 +179,4 @@ services:
 
 volumes:
   postgres_data:
+  search_index:

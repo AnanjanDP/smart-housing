@@ -73,7 +73,7 @@ StayMatch separates concerns across four backend services, a React frontend, and
 ## Service overview
 
 - **Core API (`services/core-api`)**: Built with Django 5.0 and Django REST Framework. Manages tenant and landlord authentication, user profiles, housing applications, and property listings backed by PostgreSQL.
-- **Search service (`services/search-service`)**: Built with FastAPI. Handles vector similarity search and trigram text matching across property listings.
+- **Search service (`services/search-service`)**: Built with FastAPI. Embeds property listings with sentence-transformers, serves semantic search from an in-memory FAISS index kept in sync with PostgreSQL, and fuses it with keyword matching using Reciprocal Rank Fusion. See `services/search-service/README.md`.
 - **Recommendation service (`services/recommendation-service`)**: Built with FastAPI. Computes compatibility percentages between roommate candidates based on budget, lifestyle choices, and dealbreaker filters.
 - **Notification service (`services/notification-service`)**: Event-driven worker that consumes Kafka topics to trigger email notifications when users submit rental applications or message potential roommates.
 - **Frontend (`frontend`)**: React 18 single-page application built with Vite and Lucide icons. Includes dual light/dark theme modes, property upload modals, and real-time roommate chat dialogs.

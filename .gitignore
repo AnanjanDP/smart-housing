@@ -85,3 +85,7 @@ prometheus_data/
 faiss_index/
 *.index
 *.pkl
+
+# Local FAISS index data
+.vector_index/
+*.faiss
