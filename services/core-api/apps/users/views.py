@@ -8,6 +8,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
@@ -31,6 +32,22 @@ class AuthThrottleMixin:
 
 class CustomTokenObtainPairView(AuthThrottleMixin, TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+class LogoutView(APIView):
+    """Ends a session by blacklisting its refresh token, so it can't be used to mint new access tokens."""
+    permission_classes = [permissions.AllowAny]  # an expired access token must not stop someone logging out
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
+
+    def post(self, request):
+        refresh = request.data.get('refresh')
+        if isinstance(refresh, str) and refresh:
+            try:
+                RefreshToken(refresh).blacklist()
+            except TokenError:
+                pass  # already expired or blacklisted: the goal (token unusable) is met
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class RegisterView(AuthThrottleMixin, generics.CreateAPIView):
     queryset = User.objects.all()

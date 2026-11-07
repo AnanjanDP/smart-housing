@@ -21,7 +21,7 @@ services:
     image: redis:7-alpine
     container_name: staymatch-redis-prod
     restart: always
-    command: redis-server --save 60 1 --loglevel notice
+    command: redis-server --save 60 1 --loglevel notice --requirepass ${REDIS_PASSWORD:?Redis password required}
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
@@ -53,13 +53,16 @@ services:
     environment:
       - DEBUG=False
       - SECRET_KEY=${SECRET_KEY:?Secret key required}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,core-api}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:?Allowed hosts required}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-}
+      - NUM_PROXIES=1
       - POSTGRES_DB=${POSTGRES_DB:-staymatch_prod_db}
       - POSTGRES_USER=${POSTGRES_USER:-staymatch_prod_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Database password required}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Redis password required}@redis:6379/0
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - SUPABASE_URL=${SUPABASE_URL:-}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
@@ -81,12 +84,13 @@ services:
     command: celery -A config worker --loglevel=info
     environment:
       - SECRET_KEY=${SECRET_KEY:?Secret key required}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:?Allowed hosts required}
       - POSTGRES_DB=${POSTGRES_DB:-staymatch_prod_db}
       - POSTGRES_USER=${POSTGRES_USER:-staymatch_prod_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Database password required}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Redis password required}@redis:6379/0
       - DJANGO_SETTINGS_MODULE=config.settings.production
     depends_on:
       - postgres
@@ -157,11 +161,16 @@ services:
     build:
       context: ./infrastructure/nginx
       dockerfile: Dockerfile
+      args:
+        NGINX_CONF: nginx.prod.conf
     container_name: staymatch-nginx-prod
     restart: always
     ports:
       - "80:80"
       - "443:443"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ${TLS_CERT_DIR:?Directory with fullchain.pem and privkey.pem required}:/etc/nginx/certs:ro
     depends_on:
       - core-api
       - search-service

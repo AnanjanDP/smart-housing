@@ -24,6 +24,7 @@ INSTALLED_APPS = [
 
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'django_filters',
 
@@ -106,6 +107,10 @@ REST_FRAMEWORK = {
         'user': '120/minute',
         'auth': '10/minute',
     },
+    # How many reverse proxies sit in front of the API (nginx = 1). DRF then takes the client address from
+    # the right place in X-Forwarded-For instead of trusting whatever a caller put there, so the rate limits
+    # cannot be dodged by sending a fake header.
+    'NUM_PROXIES': int(os.getenv('NUM_PROXIES', '0')),
     'DEFAULT_PAGINATION_CLASS': 'common.pagination.StandardResultsSetPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_FILTER_BACKENDS': (
@@ -117,9 +122,12 @@ REST_FRAMEWORK = {
 
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    # Short-lived access token; the client renews it with the refresh token. Each refresh token works once
+    # (rotated and the old one blacklisted), and logout blacklists it too.
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=int(os.getenv('ACCESS_TOKEN_MINUTES', '15'))),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
@@ -150,7 +158,8 @@ CACHES = {
 }
 
 
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+# Sessions live in the database and are cached; flushing the cache no longer logs everyone out.
+SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 SESSION_CACHE_ALIAS = 'default'
 
 # Celery Configuration Settings (Dual Async Processing Rules)

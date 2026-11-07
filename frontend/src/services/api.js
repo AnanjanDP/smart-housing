@@ -15,6 +15,71 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Access tokens are short-lived. When one is rejected, renew it once with the refresh token and retry the
+// request; if that fails the session is over and the app is told to sign the user out.
+export const SESSION_EXPIRED_EVENT = 'staymatch:session-expired';
+const NO_REFRESH_PATHS = ['users/login/', 'users/register/', 'users/oauth/login/', 'users/token/refresh/', 'users/logout/'];
+let refreshInFlight = null;
+
+export const saveTokens = (data) => {
+  if (data?.access) localStorage.setItem('staymatch_token', data.access);
+  if (data?.refresh) localStorage.setItem('staymatch_refresh', data.refresh);
+};
+
+export const clearTokens = () => {
+  localStorage.removeItem('staymatch_token');
+  localStorage.removeItem('staymatch_refresh');
+};
+
+const renewAccessToken = () => {
+  if (!refreshInFlight) {
+    const refresh = localStorage.getItem('staymatch_refresh');
+    // A bare axios call, so the failure handler below cannot re-enter itself.
+    refreshInFlight = axios
+      .post(`${api.defaults.baseURL}users/token/refresh/`, { refresh })
+      .then((res) => {
+        saveTokens(res.data);
+        return res.data.access;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+};
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const original = error.config;
+    const status = error.response?.status;
+    const skip = !original || original._retried || NO_REFRESH_PATHS.some((p) => original.url?.includes(p));
+    if (status !== 401 || skip || !localStorage.getItem('staymatch_refresh')) {
+      return Promise.reject(error);
+    }
+    original._retried = true;
+    try {
+      const access = await renewAccessToken();
+      original.headers.Authorization = `Bearer ${access}`;
+      return api(original);
+    } catch (refreshError) {
+      clearTokens();
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+      return Promise.reject(error);
+    }
+  }
+);
+
+export const logoutApi = async () => {
+  const refresh = localStorage.getItem('staymatch_refresh');
+  if (!refresh) return;
+  try {
+    await api.post('users/logout/', { refresh });
+  } catch (e) {
+    // Signing out locally still proceeds; the refresh token expires on its own.
+  }
+};
+
 export const loginUserApi = async (username, password) => {
   const response = await api.post('users/login/', { email: username, username: username, password });
   return response.data;

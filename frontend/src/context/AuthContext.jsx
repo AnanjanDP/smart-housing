@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect } from 'react';
-import { loginUserApi, registerUserApi, oauthLoginApi, fetchCurrentUser, createListingApi, fetchApplicationsApi, createApplicationApi, updateApplicationStatusApi, updateUserProfileApi } from '../services/api';
+import { loginUserApi, registerUserApi, oauthLoginApi, fetchCurrentUser, createListingApi, fetchApplicationsApi, createApplicationApi, updateApplicationStatusApi, updateUserProfileApi, saveTokens, clearTokens, logoutApi, SESSION_EXPIRED_EVENT } from '../services/api';
 import { supabase } from '../lib/supabaseClient';
 
 export const AuthContext = createContext();
@@ -76,7 +76,7 @@ export const AuthProvider = ({ children }) => {
         });
         const rawData = { ...synced.user, name: displayName, avatar_url: synced.user?.avatar_url || avatarUrl };
         const userData = getUserWithSavedPreferences(rawData);
-        localStorage.setItem('staymatch_token', synced.access);
+        saveTokens(synced);
         localStorage.setItem('staymatch_user', JSON.stringify(userData));
         if (isMounted) setUser(userData);
       } catch (err) {
@@ -119,6 +119,14 @@ export const AuthProvider = ({ children }) => {
 
     initAuthSession();
 
+    // The API layer could not renew an expired session: sign the user out locally.
+    const onSessionExpired = () => {
+      if (!isMounted) return;
+      setUser(null);
+      localStorage.removeItem('staymatch_user');
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+
     // 3. Listen to Supabase auth events (SIGNED_IN, TOKEN_REFRESHED, SIGNED_OUT)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Supabase Auth Event:', event, session?.user?.email);
@@ -129,7 +137,7 @@ export const AuthProvider = ({ children }) => {
       } else if (event === 'SIGNED_OUT') {
         if (isMounted) {
           setUser(null);
-          localStorage.removeItem('staymatch_token');
+          clearTokens();
           localStorage.removeItem('staymatch_user');
         }
       }
@@ -137,6 +145,7 @@ export const AuthProvider = ({ children }) => {
 
     return () => {
       isMounted = false;
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
       subscription?.unsubscribe();
     };
   }, []);
@@ -177,7 +186,7 @@ export const AuthProvider = ({ children }) => {
   const login = async (username, password) => {
     const data = await loginUserApi(username, password);
     const token = data.access;
-    localStorage.setItem('staymatch_token', token);
+    saveTokens(data);
 
     let rawUserData = data.user;
     if (!rawUserData) {
@@ -229,7 +238,7 @@ export const AuthProvider = ({ children }) => {
       avatar_url: payload.avatar_url || data.user?.avatar_url,
       role: data.user?.role || 'TENANT'
     });
-    localStorage.setItem('staymatch_token', data.access);
+    saveTokens(data);
     localStorage.setItem('staymatch_user', JSON.stringify(userData));
     setUser(userData);
 
@@ -309,10 +318,11 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    await logoutApi();
     try {
       await supabase.auth.signOut();
     } catch (e) {}
-    localStorage.removeItem('staymatch_token');
+    clearTokens();
     localStorage.removeItem('staymatch_user');
     localStorage.removeItem('staymatch_sent_requests');
     localStorage.removeItem('staymatch_received_requests');
