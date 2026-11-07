@@ -22,7 +22,7 @@ jobs:
       - name: Run Django Tests
         run: |
           cd services/core-api
-          USE_SQLITE_DEV=True python manage.py test tests
+          USE_SQLITE_DEV=True python manage.py test tests apps
 
   search-service-tests:
     runs-on: ubuntu-latest

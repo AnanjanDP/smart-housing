@@ -67,6 +67,9 @@ services:
       - POSTGRES_PORT=5432
       - REDIS_URL=redis://redis:6379/0
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
+      - ALLOW_INSECURE_DEMO_OAUTH=${ALLOW_INSECURE_DEMO_OAUTH:-False}
     depends_on:
       postgres:
         condition: service_healthy

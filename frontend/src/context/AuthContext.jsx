@@ -68,12 +68,11 @@ export const AuthProvider = ({ children }) => {
       const avatarUrl = supaUser.user_metadata?.avatar_url || supaUser.user_metadata?.picture;
 
       try {
+        // The server verifies this token's signature and takes the email from it; the identity
+        // fields below are not sent because the server would not trust them.
         const synced = await oauthLoginApi({
-          email: supaUser.email,
-          name: displayName,
-          avatar_url: avatarUrl,
-          provider: 'google_oidc',
-          sub: supaUser.id
+          id_token: session.access_token,
+          provider: 'google_oidc'
         });
         const rawData = { ...synced.user, name: displayName, avatar_url: synced.user?.avatar_url || avatarUrl };
         const userData = getUserWithSavedPreferences(rawData);

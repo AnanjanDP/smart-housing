@@ -74,6 +74,21 @@ ASGI_APPLICATION = 'config.asgi.application'
 
 AUTH_USER_MODEL = 'users.User'
 
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 8}},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
+
+# OAuth sign-in: identity tokens are verified against these (see apps/users/oauth.py).
+# SUPABASE_JWT_SECRET verifies HS256 tokens; SUPABASE_URL enables the project's public signing keys.
+SUPABASE_URL = os.getenv('SUPABASE_URL', '')
+SUPABASE_JWT_SECRET = os.getenv('SUPABASE_JWT_SECRET', '')
+# Local-development shortcut that signs in a typed email. Ignored unless DEBUG is on, and it can
+# never sign in to an account that has a password.
+ALLOW_INSECURE_DEMO_OAUTH = os.getenv('ALLOW_INSECURE_DEMO_OAUTH', 'False') == 'True'
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -88,7 +103,8 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '30/minute',
-        'user': '120/minute'
+        'user': '120/minute',
+        'auth': '10/minute',
     },
     'DEFAULT_PAGINATION_CLASS': 'common.pagination.StandardResultsSetPagination',
     'PAGE_SIZE': 20,

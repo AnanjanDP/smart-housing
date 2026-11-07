@@ -1,15 +1,38 @@
+import logging
+import re
+import secrets
+
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from rest_framework import generics, permissions, status
-from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
+
 from apps.users.models import User
+from apps.users.oauth import (
+    OAuthVerificationError,
+    VerifiedIdentity,
+    demo_login_enabled,
+    verify_supabase_token,
+)
 from apps.users.serializers import UserSerializer, RegisterSerializer, CustomTokenObtainPairSerializer
 
-class CustomTokenObtainPairView(TokenObtainPairView):
+logger = logging.getLogger(__name__)
+
+
+class AuthThrottleMixin:
+    """Sign-in, sign-up and OAuth endpoints share a tighter rate limit than the rest of the API."""
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
+
+
+class CustomTokenObtainPairView(AuthThrottleMixin, TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
-class RegisterView(generics.CreateAPIView):
+class RegisterView(AuthThrottleMixin, generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
@@ -21,64 +44,91 @@ class UserMeView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         return self.request.user
 
-class OAuthOIDCLoginView(APIView):
+
+def _unique_username(email: str) -> str:
+    base = re.sub(r'[^\w.@+-]', '', email.split('@')[0])[:30] or 'user'
+    candidate = base
+    while User.objects.filter(username__iexact=candidate).exists():
+        candidate = f"{base}-{secrets.token_hex(2)}"
+    return candidate
+
+
+def _split_name(name: str):
+    parts = name.split() if name else []
+    return (parts[0] if parts else ''), (' '.join(parts[1:]) if len(parts) > 1 else '')
+
+
+class OAuthOIDCLoginView(AuthThrottleMixin, APIView):
+    """Sign in with an identity token issued by the OAuth provider (Supabase).
+
+    The token's signature, expiry, audience and issuer are verified on the server, and the email
+    address is taken only from the verified token. Nothing the client sends alongside the token is
+    trusted. The typed-email shortcut used by the local demo form only works when
+    ALLOW_INSECURE_DEMO_OAUTH is set and DEBUG is on, and it can never sign in to an account that
+    has a password.
+    """
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        id_token = request.data.get('id_token')
-        email = request.data.get('email')
-        name = request.data.get('name', '').strip()
-        provider = request.data.get('provider', 'google_oidc')
-        avatar_url = request.data.get('avatar_url')
+        token = request.data.get('id_token') or request.data.get('access_token')
         requested_role = request.data.get('role', User.Role.TENANT)
+        demo = False
 
-        # Handle raw OIDC payload if id_token is provided
-        if id_token and not email:
-            import base64
-            import json
+        if token:
             try:
-                # Basic JWT header.payload.signature split decoding for OIDC token payload
-                parts = id_token.split('.')
-                if len(parts) >= 2:
-                    padding = '=' * (4 - len(parts[1]) % 4)
-                    payload_bytes = base64.b64decode(parts[1] + padding)
-                    claims = json.loads(payload_bytes)
-                    email = claims.get('email', email)
-                    name = claims.get('name', name)
-                    avatar_url = claims.get('picture', avatar_url)
-            except Exception:
-                pass
-
-        if not email:
-            email = f"oauth_user_{request.data.get('sub', 'demo')}@staymatch.com"
-            name = name or "OAuth User"
-
-        name_parts = name.split() if name else []
-        first_name = name_parts[0] if name_parts else ''
-        last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ''
-
-        username = email.split('@')[0]
-        user = User.objects.filter(email=email).first() or User.objects.filter(username=username).first()
-        
-        valid_role = requested_role if requested_role in [User.Role.TENANT, User.Role.LANDLORD] else User.Role.TENANT
-
-        if not user:
-            user = User.objects.create_user(
+                identity = verify_supabase_token(token)
+            except OAuthVerificationError as exc:
+                logger.warning("Rejected OAuth login: %s", exc)
+                return Response({'detail': 'Invalid or unverifiable identity token.'}, status=status.HTTP_401_UNAUTHORIZED)
+            if not identity.email or not identity.email_verified:
+                return Response({'detail': 'A verified email address is required.'}, status=status.HTTP_401_UNAUTHORIZED)
+        elif demo_login_enabled():
+            email = str(request.data.get('email') or '').strip().lower()
+            try:
+                validate_email(email)
+            except DjangoValidationError:
+                return Response({'detail': 'A valid email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            identity = VerifiedIdentity(
+                subject=str(request.data.get('sub') or ''),
                 email=email,
-                username=username,
+                email_verified=True,
+                name=str(request.data.get('name') or '').strip(),
+                avatar_url=request.data.get('avatar_url'),
+                provider='demo',
+            )
+            demo = True
+        else:
+            return Response({'detail': 'A verified identity token is required.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        user = User.objects.filter(email__iexact=identity.email).first()
+        first_name, last_name = _split_name(identity.name)
+
+        if user is None:
+            role = requested_role if requested_role in (User.Role.TENANT, User.Role.LANDLORD) else User.Role.TENANT
+            user = User.objects.create_user(
+                email=identity.email,
+                username=_unique_username(identity.email),
+                password=None,
                 first_name=first_name,
                 last_name=last_name,
-                role=valid_role,
-                avatar_url=avatar_url,
-                password=User.objects.make_random_password()
+                role=role,
+                avatar_url=identity.avatar_url or '',
             )
         else:
-            if first_name or last_name:
-                user.first_name = first_name or user.first_name
-                user.last_name = last_name or user.last_name
-            if avatar_url:
-                user.avatar_url = avatar_url
-            user.save()
+            if demo and user.has_usable_password():
+                return Response(
+                    {'detail': 'Demo sign-in cannot be used for accounts that have a password.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if not user.is_active:
+                return Response({'detail': 'This account is disabled.'}, status=status.HTTP_403_FORBIDDEN)
+            changed = False
+            if first_name and not user.first_name:
+                user.first_name, user.last_name, changed = first_name, last_name, True
+            if identity.avatar_url and not user.avatar_url:
+                user.avatar_url, changed = identity.avatar_url, True
+            if changed:
+                user.save()
 
         refresh = RefreshToken.for_user(user)
         return Response({
@@ -86,4 +136,3 @@ class OAuthOIDCLoginView(APIView):
             'refresh': str(refresh),
             'user': UserSerializer(user).data
         }, status=status.HTTP_200_OK)
-
