@@ -84,7 +84,8 @@ class SentenceTransformerEmbedder:
 
                     logger.info("Loading embedding model %s", self.name)
                     model = SentenceTransformer(self.name, device=self.device)
-                    self._dim = int(model.get_sentence_embedding_dimension())
+                    dimension = getattr(model, "get_embedding_dimension", None) or model.get_sentence_embedding_dimension
+                    self._dim = int(dimension())
                     self._model = model
         return self._model
 

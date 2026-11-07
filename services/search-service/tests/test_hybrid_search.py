@@ -72,3 +72,35 @@ def test_hybrid_search_applies_filters_to_both_retrievers(manager):
         manager, manager.snapshot, "studio near metro", SearchFilters(max_price=6000), 5
     )
     assert {r["id"] for r in results} == {"c"}
+
+
+# ---------------------------------------------------------------- keyword matching rules
+def test_common_words_are_not_search_terms():
+    assert KeywordSearchEngine.query_terms("I have a puppy in the flat") == ["puppy", "flat"]
+
+
+def test_a_query_of_only_common_words_matches_nothing():
+    listings = [{"id": "1", "title": "A studio in the city", "description": "I like it", "city": "Pune"}]
+    assert KeywordSearchEngine.search("a the of", listings) == []
+
+
+def test_matching_is_by_whole_word_not_by_substring():
+    listings = [{"id": "1", "title": "Private room", "description": "Quiet", "city": "Pune"}]
+    assert KeywordSearchEngine.search("rivat", listings) == []
+    assert KeywordSearchEngine.search("ate", listings) == []
+    assert KeywordSearchEngine.search("private", listings)[0]["id"] == "1"
+
+
+def test_longer_terms_match_the_start_of_a_word():
+    listings = [{"id": "1", "title": "Two bedroom flat", "description": "Near the metro", "city": "Pune"}]
+    assert KeywordSearchEngine.search("bed", listings)[0]["id"] == "1"
+    assert KeywordSearchEngine.search("metr", listings)[0]["id"] == "1"
+    assert KeywordSearchEngine.search("be", listings) == []
+
+
+def test_common_words_do_not_distort_the_ranking():
+    listings = [
+        {"id": "garden", "title": "House with a garden", "description": "A quiet street", "city": "Pune"},
+        {"id": "pets", "title": "Flat", "description": "Welcomes dogs and puppy owners", "city": "Pune"},
+    ]
+    assert KeywordSearchEngine.search("I have a puppy", listings)[0]["id"] == "pets"
