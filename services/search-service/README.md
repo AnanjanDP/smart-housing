@@ -72,3 +72,18 @@ The Docker image installs CPU-only PyTorch and bakes the model into the image, s
 - **Exact (flat) index.** Fine to a few hundred thousand listings. Beyond that, move to an IVF or HNSW index (or pgvector / a vector database); the search function is the only place that changes.
 - **Change detection uses `updated_at`.** Bulk SQL updates that bypass Django's `auto_now` are missed until `POST /index/refresh?force=true`.
 - **Keyword matching is term overlap on the in-memory snapshot**, not fuzzy matching. Typo-tolerant text search (PostgreSQL `pg_trgm`) and location-radius search are not implemented.
+
+## Chat WebSocket
+
+`/api/v1/search/ws/chat/{room_id}` is private and authenticated.
+
+1. Open the socket (browser origin must be in `CORS_ALLOWED_ORIGINS`).
+2. Within 5 seconds send `{"type": "auth", "token": "<core-api access token>"}`. The token is verified with
+   `JWT_SIGNING_KEY` (the core-api `SECRET_KEY`), HS256 only, and must be an unexpired access token.
+3. Rooms are `dm.<userA>.<userB>` (the two user ids, lower-case, sorted) or `listing.<listingId>.<tenantId>`
+   (joinable only by that tenant and the listing's owner). Anyone else is closed with 4403.
+4. Send `{"id": <client id>, "text": "...", "sender_name": "..."}`. The server sets `sender_id` from the token and
+   broadcasts `{"type": "chat_message", "id", "client_id", "sender_id", "sender_name", "text", "timestamp"}`.
+
+Close codes: 4401 not authenticated, 4403 forbidden, 4429 room full / flooding, 1009 frame too large, 1011 server error.
+Limits: 8 KB per frame, 2000 characters per message, 10 messages per 10 seconds, 10 connections per room.

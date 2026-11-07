@@ -105,3 +105,13 @@ class ListingRepository:
                 (list(ids),),
             )
             return [_row_to_listing(row) for row in cursor.fetchall()]
+
+    def fetch_listing_owner(self, listing_id: str):
+        """The owner's user id for a listing, or None if the listing does not exist."""
+        with self._cursor() as cursor:
+            cursor.execute(
+                "SELECT owner_id::text AS owner_id FROM listings_listing WHERE id = %s::uuid;",
+                (listing_id,),
+            )
+            row = cursor.fetchone()
+            return row["owner_id"] if row else None

@@ -99,7 +99,7 @@ services:
       dockerfile: Dockerfile
     container_name: staymatch-search-service-prod
     restart: always
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 1
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 1 --ws-max-size 65536
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-staymatch_prod_db}
       - POSTGRES_USER=${POSTGRES_USER:-staymatch_prod_user}
@@ -110,6 +110,8 @@ services:
       - VECTOR_INDEX_DIR=/data/vector_index
       - INDEX_REFRESH_INTERVAL_SECONDS=${INDEX_REFRESH_INTERVAL_SECONDS:-60}
       - SEARCH_ADMIN_TOKEN=${SEARCH_ADMIN_TOKEN:-}
+      - JWT_SIGNING_KEY=${SECRET_KEY:?Secret key required}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:?Allowed origins required}
     volumes:
       - search_index_prod:/data/vector_index
     healthcheck:

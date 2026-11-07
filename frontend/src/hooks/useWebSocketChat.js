@@ -1,12 +1,35 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-export const useWebSocketChat = (roomId, initialMessages = []) => {
+const AUTH_DENIED_CODES = [4401, 4403];
+
+const formatTime = (iso) => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+/**
+ * Live chat for one private room.
+ *
+ * The server only lets the two participants of a room join, and it identifies each sender from the
+ * access token sent as the first message, so the sender shown for a message is the verified one.
+ * Without a room id or a signed-in user the hook stays in local-only mode.
+ *
+ * options.selfId      the signed-in user's id, used to tell your messages from the other person's
+ * options.otherSender label given to the other person's messages (the modals style by this)
+ */
+export const useWebSocketChat = (roomId, initialMessages = [], options = {}) => {
+  const { selfId = null, otherSender = 'other' } = options;
   const [messages, setMessages] = useState(initialMessages);
   const [isConnected, setIsConnected] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
   const socketRef = useRef(null);
 
   useEffect(() => {
-    if (!roomId) return;
+    const token = localStorage.getItem('staymatch_token');
+    if (!roomId || !token) return undefined;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     // In dev mode, connect directly to search-service on port 8001 to bypass Vite proxy socket abort error
@@ -17,26 +40,39 @@ export const useWebSocketChat = (roomId, initialMessages = []) => {
     try {
       socket = new WebSocket(wsUrl);
       socketRef.current = socket;
+      setAccessDenied(false);
 
       socket.onopen = () => {
-        setIsConnected(true);
+        // The token goes in the first message, not the URL, so it never ends up in server logs.
+        socket.send(JSON.stringify({ type: 'auth', token }));
       };
 
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+
+          if (data.type === 'connection_established') {
+            setIsConnected(true);
+            return;
+          }
+          if (data.type === 'error') {
+            console.warn('Chat server error:', data.code);
+            return;
+          }
           if (data.type === 'chat_message' && data.text) {
+            const mine = Boolean(selfId) && data.sender_id === selfId;
             setMessages((prev) => {
-              // Avoid duplicate messages if received back from broadcast
+              // Your own message is already on screen (added when you sent it); the server echoes it back.
               if (prev.some((m) => m.id === data.id)) return prev;
+              if (mine && data.client_id != null && prev.some((m) => m.id === data.client_id)) return prev;
               return [
                 ...prev,
                 {
-                  id: data.id || Date.now(),
-                  sender: data.sender || 'user',
+                  id: data.id,
+                  sender: mine ? 'user' : otherSender,
                   sender_name: data.sender_name,
                   text: data.text,
-                  timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  timestamp: formatTime(data.timestamp)
                 }
               ];
             });
@@ -51,8 +87,9 @@ export const useWebSocketChat = (roomId, initialMessages = []) => {
         setIsConnected(false);
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         setIsConnected(false);
+        if (AUTH_DENIED_CODES.includes(event.code)) setAccessDenied(true);
       };
     } catch (e) {
       console.warn('Could not establish WebSocket, fallback active:', e);
@@ -67,7 +104,7 @@ export const useWebSocketChat = (roomId, initialMessages = []) => {
         }
       }
     };
-  }, [roomId]);
+  }, [roomId, selfId, otherSender]);
 
   const sendMessage = useCallback((text, sender = 'user', senderName = '') => {
     if (!text || !text.trim()) return;
@@ -86,9 +123,9 @@ export const useWebSocketChat = (roomId, initialMessages = []) => {
     // Optimistically update UI
     setMessages((prev) => [...prev, newMsg]);
 
-    // Send via WebSocket if connected
+    // Send via WebSocket if connected; the server decides who the sender is
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify(newMsg));
+      socketRef.current.send(JSON.stringify({ id: msgId, text: newMsg.text, sender_name: senderName }));
     }
   }, []);
 
@@ -96,6 +133,7 @@ export const useWebSocketChat = (roomId, initialMessages = []) => {
     messages,
     setMessages,
     isConnected,
+    accessDenied,
     sendMessage
   };
 };

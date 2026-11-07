@@ -1,9 +1,20 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import { X, Send, Building2, ShieldCheck, MapPin, DollarSign, CheckCheck, Clock, Calendar, Phone, Mail, Wifi } from 'lucide-react';
 import { useWebSocketChat } from '../hooks/useWebSocketChat';
+import { AuthContext } from '../context/AuthContext';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const LandlordTenantChatModal = ({ listing, isOpen, onClose, initialMessage = '' }) => {
-  const roomId = listing ? `landlord-prop-${listing.id}` : 'landlord-general';
+  const { user } = useContext(AuthContext);
+  // A conversation is private to one tenant and the listing's owner. The landlord's screens pass the
+  // applicant's id as listing.chatTenantId; a tenant is always themselves. Listings without real ids
+  // (demo data) get no live room and stay local-only.
+  const landlordView = Boolean(listing?.chatTenantId);
+  const tenantId = listing?.chatTenantId || (user?.id && user.id !== listing?.owner?.id ? user.id : null);
+  const roomId = listing && UUID.test(String(listing.id)) && UUID.test(String(tenantId))
+    ? `listing.${String(listing.id).toLowerCase()}.${String(tenantId).toLowerCase()}`
+    : null;
   const { messages, setMessages, isConnected, sendMessage } = useWebSocketChat(
     roomId,
     listing ? [
@@ -19,7 +30,8 @@ export const LandlordTenantChatModal = ({ listing, isOpen, onClose, initialMessa
         text: initialMessage,
         timestamp: 'Just now'
       }] : [])
-    ] : []
+    ] : [],
+    { selfId: user?.id, otherSender: landlordView ? 'tenant' : 'landlord' }
   );
 
   const [inputText, setInputText] = useState('');

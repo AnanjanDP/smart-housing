@@ -374,7 +374,7 @@ export const LandlordDashboard = () => {
                     border: '1px solid var(--border-color)',
                     background: '#1a1d24'
                   }}
-                  onClick={() => setSelectedChatListing(listingObj)}
+                  onClick={() => setSelectedChatListing({ ...listingObj, chatTenantId: app.applicant?.id })}
                 >
                   <div style={{ display: 'flex', gap: '18px', alignItems: 'center' }}>
                     <div style={{
@@ -407,7 +407,7 @@ export const LandlordDashboard = () => {
                       className="btn-primary"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedChatListing(listingObj);
+                        setSelectedChatListing({ ...listingObj, chatTenantId: app.applicant?.id });
                       }}
                       style={{
                         padding: '10px 16px',

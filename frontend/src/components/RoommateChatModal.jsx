@@ -1,10 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import { X, Send, Sparkles, CheckCheck, MessageSquare, ShieldCheck, MapPin, Calendar, Clock, Wifi } from 'lucide-react';
 import { CompatibilityBadge } from './CompatibilityBadge';
 import { useWebSocketChat } from '../hooks/useWebSocketChat';
+import { AuthContext } from '../context/AuthContext';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const RoommateChatModal = ({ roommate, isOpen, onClose }) => {
-  const roomId = roommate ? `roommate-${roommate.id}` : 'roommate-general';
+  const { user } = useContext(AuthContext);
+  // A private room for the two people: their user ids, lower-cased and sorted, so both sides compute the
+  // same room name. Profiles without real user ids (demo data) stay local-only.
+  const pair = roommate && UUID.test(String(roommate.userId)) && UUID.test(String(user?.id)) && roommate.userId !== user.id
+    ? [String(user.id).toLowerCase(), String(roommate.userId).toLowerCase()].sort()
+    : null;
+  const roomId = pair ? `dm.${pair[0]}.${pair[1]}` : null;
   const { messages, setMessages, isConnected, sendMessage } = useWebSocketChat(
     roomId,
     roommate ? [{
@@ -12,7 +21,8 @@ export const RoommateChatModal = ({ roommate, isOpen, onClose }) => {
       sender: 'roommate',
       text: `Hey there! Thanks for connecting. I'm looking for a compatible roommate in ${roommate.preferred_location || 'San Francisco, CA'}.`,
       timestamp: 'Just now'
-    }] : []
+    }] : [],
+    { selfId: user?.id, otherSender: 'roommate' }
   );
 
   const [inputText, setInputText] = useState('');

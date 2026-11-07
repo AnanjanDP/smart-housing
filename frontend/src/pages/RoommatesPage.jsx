@@ -25,6 +25,7 @@ export const RoommatesPage = () => {
           const name = userObj.first_name || userObj.username || userObj.email?.split('@')[0] || 'Roommate';
           return {
             id: item.id || `rm-${Date.now()}`,
+            userId: userObj.id,
             name: userObj.first_name && userObj.last_name ? `${userObj.first_name} ${userObj.last_name}` : name,
             avatar: userObj.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
             preferred_location: item.preferred_location || 'San Francisco, CA',

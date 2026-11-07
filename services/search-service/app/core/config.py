@@ -14,6 +14,15 @@ class Settings(BaseSettings):
     VECTOR_INDEX_DIR: str = os.getenv("VECTOR_INDEX_DIR", "")
     INDEX_REFRESH_INTERVAL_SECONDS: float = float(os.getenv("INDEX_REFRESH_INTERVAL_SECONDS", "60"))
     SEARCH_ADMIN_TOKEN: str = os.getenv("SEARCH_ADMIN_TOKEN", "")
+    # Shared with the core API (its Django SECRET_KEY) so chat can verify the access tokens it issues.
+    JWT_SIGNING_KEY: str = os.getenv("JWT_SIGNING_KEY", "")
+    CORS_ALLOWED_ORIGINS: str = os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost,http://localhost:3000,http://localhost:8000,http://localhost:5173",
+    )
+
+    def allowed_origins(self):
+        return [o.strip() for o in self.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
 
     @property
     def DATABASE_URL(self) -> str:
