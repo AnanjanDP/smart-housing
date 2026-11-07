@@ -1,11 +1,28 @@
 import os
 import logging
+from contextlib import contextmanager
+
 import psycopg2
 import psycopg2.extras
 from psycopg2.pool import ThreadedConnectionPool
 from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+LISTING_COLUMNS = "id::text, title, description, city, state, price, bedrooms, is_available, updated_at"
+
+
+class ListingRepositoryError(RuntimeError):
+    """Raised when listings cannot be read; callers must not treat this as "no listings"."""
+
+
+def _row_to_listing(row) -> Dict[str, Any]:
+    listing = dict(row)
+    listing['price'] = float(listing['price'])
+    updated_at = listing.get('updated_at')
+    listing['updated_at'] = updated_at.isoformat() if hasattr(updated_at, 'isoformat') else str(updated_at or '')
+    return listing
+
 
 class ListingRepository:
     _pool = None
@@ -36,6 +53,59 @@ class ListingRepository:
                 logger.warning(f"Failed to initialize PostgreSQL pool in search service: {e}")
                 ListingRepository._pool = None
 
+    @contextmanager
+    def _cursor(self):
+        """Yield a dict cursor from the pool; raise ListingRepositoryError on any failure.
+
+        A failed connection is discarded and the pool is rebuilt on the next call, so one database
+        outage does not disable the repository until the process restarts.
+        """
+        if ListingRepository._pool is None:
+            self._init_pool()
+        pool = ListingRepository._pool
+        if pool is None:
+            raise ListingRepositoryError("PostgreSQL is unavailable")
+
+        conn = None
+        try:
+            conn = pool.getconn()
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                yield cursor
+            conn.rollback()
+            pool.putconn(conn)
+        except Exception as e:
+            logger.error(f"Listing query failed: {e}")
+            if conn is not None:
+                try:
+                    pool.putconn(conn, close=True)
+                except Exception:
+                    pass
+            ListingRepository._pool = None
+            raise ListingRepositoryError(str(e)) from e
+
+    def fetch_listing_versions(self) -> Dict[str, str]:
+        """Cheap scan used to detect changes: listing id -> updated_at for every available listing."""
+        with self._cursor() as cursor:
+            cursor.execute(
+                "SELECT id::text AS id, updated_at FROM listings_listing WHERE is_available = TRUE;"
+            )
+            return {
+                row['id']: (row['updated_at'].isoformat() if hasattr(row['updated_at'], 'isoformat')
+                            else str(row['updated_at'] or ''))
+                for row in cursor.fetchall()
+            }
+
+    def fetch_listings_by_ids(self, ids: List[str]) -> List[Dict[str, Any]]:
+        if not ids:
+            return []
+        with self._cursor() as cursor:
+            cursor.execute(
+                f"SELECT {LISTING_COLUMNS} FROM listings_listing "
+                "WHERE is_available = TRUE AND id = ANY(%s::uuid[]);",
+                (list(ids),),
+            )
+            return [_row_to_listing(row) for row in cursor.fetchall()]
+
     def fetch_all_active_listings(self) -> List[Dict[str, Any]]:
         conn = None
         if ListingRepository._pool:
@@ -49,7 +119,7 @@ class ListingRepository:
                 rows = cursor.fetchall()
                 cursor.close()
                 ListingRepository._pool.putconn(conn)
-                
+
                 if rows:
                     results = []
                     for row in rows:
@@ -68,5 +138,3 @@ class ListingRepository:
 
         # Return empty list if database returns no active listings or on connection error
         return []
-
-
