@@ -1,17 +1,20 @@
-from rest_framework import viewsets, permissions, status
+from rest_framework import serializers, viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.core.cache import cache
 from apps.roommates.models import RoommateProfile
 from apps.roommates.serializers import RoommateProfileSerializer
 from apps.roommates.matching import RoommateMatcher
+from apps.roommates.permissions import IsProfileOwnerOrReadOnly
 
 class RoommateProfileViewSet(viewsets.ModelViewSet):
     queryset = RoommateProfile.objects.all()
     serializer_class = RoommateProfileSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsProfileOwnerOrReadOnly]
 
     def perform_create(self, serializer):
+        if RoommateProfile.objects.filter(user=self.request.user).exists():
+            raise serializers.ValidationError('You already have a roommate profile; update it instead.')
         serializer.save(user=self.request.user)
 
     @action(detail=True, methods=['get'], permission_classes=[permissions.IsAuthenticated])

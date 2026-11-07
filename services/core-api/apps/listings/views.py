@@ -4,7 +4,7 @@ from django.core.cache import cache
 from apps.listings.models import Listing
 from apps.listings.serializers import ListingSerializer
 from apps.listings.filters import ListingFilter
-from apps.listings.permissions import IsListingOwnerOrReadOnly
+from apps.listings.permissions import CanPublishListings, IsListingOwnerOrReadOnly
 
 class ListingViewSet(viewsets.ModelViewSet):
     queryset = Listing.objects.all()
@@ -12,7 +12,7 @@ class ListingViewSet(viewsets.ModelViewSet):
     filterset_class = ListingFilter
     search_fields = ['title', 'description', 'city', 'address']
     ordering_fields = ['price', 'created_at']
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsListingOwnerOrReadOnly]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, CanPublishListings, IsListingOwnerOrReadOnly]
 
     def list(self, request, *args, **kwargs):
         cache_key = f"listings_list_{request.query_params.urlencode()}"
