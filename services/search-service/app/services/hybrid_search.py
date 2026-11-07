@@ -1,27 +1,48 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+
+from app.services.index_manager import IndexManager, SearchFilters
 from app.services.keyword_search import KeywordSearchEngine
 from app.services.semantic_search import SemanticSearchEngine
+from app.services.vector_index import IndexSnapshot
+
+RRF_K = 60
+
 
 class HybridSearchEngine:
     @staticmethod
-    def hybrid_search(query: str, listings: List[Dict[str, Any]], k: int = 60) -> List[Dict[str, Any]]:
-        keyword_res = KeywordSearchEngine.search(query, listings)
-        semantic_res = SemanticSearchEngine.vector_search(query, listings)
-        
-        # Reciprocal Rank Fusion (RRF)
-        rrf_scores = {}
-        for rank, item in enumerate(keyword_res):
-            rrf_scores[item['id']] = rrf_scores.get(item['id'], 0.0) + (1.0 / (k + rank + 1))
-            
-        for rank, item in enumerate(semantic_res):
-            rrf_scores[item['id']] = rrf_scores.get(item['id'], 0.0) + (1.0 / (k + rank + 1))
-            
+    def fuse(rankings: List[List[Dict[str, Any]]], k: int = RRF_K) -> List[Dict[str, Any]]:
+        """Reciprocal Rank Fusion: each list contributes 1 / (k + rank) for every listing it ranks.
+
+        Only ranks are used, so keyword scores and cosine similarities (which are not comparable) can
+        be combined without normalisation.
+        """
+        scores: Dict[str, float] = {}
+        docs: Dict[str, Dict[str, Any]] = {}
+        for ranking in rankings:
+            for rank, item in enumerate(ranking, start=1):
+                scores[item['id']] = scores.get(item['id'], 0.0) + 1.0 / (k + rank)
+                docs.setdefault(item['id'], item)
+
         merged = []
-        item_map = {item['id']: item for item in listings}
-        for item_id, rrf_val in rrf_scores.items():
-            if item_id in item_map:
-                res = item_map[item_id].copy()
-                res['score'] = round(rrf_val * 100, 3)
-                merged.append(res)
-                
-        return sorted(merged, key=lambda x: x['score'], reverse=True)
+        for item_id, rrf_value in scores.items():
+            result = docs[item_id].copy()
+            result['score'] = round(rrf_value * 100, 3)
+            merged.append(result)
+        return sorted(merged, key=lambda x: (-x['score'], x['id']))
+
+    @staticmethod
+    def hybrid_search(
+        manager: IndexManager,
+        snapshot: IndexSnapshot,
+        query: str,
+        filters: Optional[SearchFilters],
+        limit: int,
+        pool: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        pool = pool or max(limit * 5, 50)
+        candidates = [
+            doc for doc in snapshot.docs.values() if filters is None or filters.matches(doc)
+        ]
+        keyword = KeywordSearchEngine.search(query, candidates)[:pool]
+        semantic = SemanticSearchEngine.search(manager, snapshot, query, pool, filters)
+        return HybridSearchEngine.fuse([keyword, semantic])

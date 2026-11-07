@@ -105,36 +105,3 @@ class ListingRepository:
                 (list(ids),),
             )
             return [_row_to_listing(row) for row in cursor.fetchall()]
-
-    def fetch_all_active_listings(self) -> List[Dict[str, Any]]:
-        conn = None
-        if ListingRepository._pool:
-            try:
-                conn = ListingRepository._pool.getconn()
-                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                cursor.execute(
-                    "SELECT id::text, title, description, city, state, price, bedrooms, is_available "
-                    "FROM listings_listing WHERE is_available = True;"
-                )
-                rows = cursor.fetchall()
-                cursor.close()
-                ListingRepository._pool.putconn(conn)
-
-                if rows:
-                    results = []
-                    for row in rows:
-                        row_dict = dict(row)
-                        row_dict['price'] = float(row_dict['price'])
-                        results.append(row_dict)
-                    return results
-            except Exception as e:
-                logger.error(f"Error executing query via connection pool: {e}")
-                if conn and ListingRepository._pool:
-                    try:
-                        ListingRepository._pool.putconn(conn, close=True)
-                    except Exception:
-                        pass
-                ListingRepository._pool = None
-
-        # Return empty list if database returns no active listings or on connection error
-        return []

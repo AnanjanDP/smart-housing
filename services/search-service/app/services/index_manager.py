@@ -140,6 +140,11 @@ class IndexManager:
             self._snapshot = saved
         logger.info("Loaded saved index: %d listings, version %d", saved.size, saved.version)
 
+    @property
+    def ready(self) -> bool:
+        """True once an index has been loaded from disk or built from the database."""
+        return self._snapshot is not None
+
     # ------------------------------------------------------------------ snapshot access
     @property
     def snapshot(self) -> IndexSnapshot:
@@ -287,3 +292,31 @@ class IndexManager:
             "last_refresh": self._last_result.as_dict() if self._last_result else None,
             "last_error": self._last_error,
         }
+
+
+_manager: Optional[IndexManager] = None
+_manager_lock = threading.Lock()
+
+
+def get_index_manager() -> IndexManager:
+    """The process-wide manager, created on first use from the service settings."""
+    global _manager
+    with _manager_lock:
+        if _manager is None:
+            from app.core.config import settings
+            from app.repositories.listing_repository import ListingRepository
+            from app.services.embedding import get_embedder
+
+            _manager = IndexManager(
+                ListingRepository(),
+                get_embedder(settings.EMBEDDING_BACKEND, settings.EMBEDDING_MODEL_NAME),
+                index_dir=settings.VECTOR_INDEX_DIR or None,
+                refresh_interval=settings.INDEX_REFRESH_INTERVAL_SECONDS,
+            )
+        return _manager
+
+
+def set_index_manager(manager: Optional[IndexManager]) -> None:
+    global _manager
+    with _manager_lock:
+        _manager = manager

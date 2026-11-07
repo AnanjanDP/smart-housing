@@ -1,14 +1,10 @@
-from fastapi.testclient import TestClient
-from app.main import app
-
-client = TestClient(app)
-
-def test_health_endpoint():
+def test_health_endpoint(client):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["service"] == "search-service"
 
-def test_search_query():
+
+def test_search_query(client):
     payload = {
         "query": "studio downtown",
         "limit": 10
@@ -17,7 +13,8 @@ def test_search_query():
     assert response.status_code == 200
     assert "results" in response.json()
 
-def test_websocket_chat():
+
+def test_websocket_chat(client):
     with client.websocket_connect("/api/v1/search/ws/chat/test-room") as websocket:
         init_msg = websocket.receive_json()
         assert init_msg["type"] == "connection_established"
@@ -28,5 +25,3 @@ def test_websocket_chat():
         assert data["type"] == "chat_message"
         assert data["text"] == "Hello world"
         assert data["sender"] == "Tester"
-
-

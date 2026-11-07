@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
     POSTGRES_PORT: str = os.getenv("POSTGRES_PORT", "5432")
 
+    EMBEDDING_BACKEND: str = os.getenv("EMBEDDING_BACKEND", "sentence-transformers")
+    EMBEDDING_MODEL_NAME: str = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
+    VECTOR_INDEX_DIR: str = os.getenv("VECTOR_INDEX_DIR", "")
+    INDEX_REFRESH_INTERVAL_SECONDS: float = float(os.getenv("INDEX_REFRESH_INTERVAL_SECONDS", "60"))
+    SEARCH_ADMIN_TOKEN: str = os.getenv("SEARCH_ADMIN_TOKEN", "")
+
     @property
     def DATABASE_URL(self) -> str:
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
