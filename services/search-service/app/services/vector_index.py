@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import time
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -92,7 +94,7 @@ def search(
     if k <= 0 or snapshot.size == 0:
         return []
 
-    query = np.ascontiguousarray(query_vector, dtype=np.float32).reshape(1, -1)
+    query = np.array(query_vector, dtype=np.float32, copy=True).reshape(1, -1)
     if query.shape[1] != snapshot.dim:
         raise ValueError(f"query has dimension {query.shape[1]}, index expects {snapshot.dim}")
 
@@ -121,3 +123,66 @@ def search(
         for score, pos in zip(scores[0], positions[0])
         if pos >= 0
     ]
+
+
+INDEX_FILE = "index.faiss"
+META_FILE = "meta.json"
+FORMAT_VERSION = 1
+
+
+def save_snapshot(snapshot: IndexSnapshot, directory: str) -> None:
+    """Write the snapshot so a restart does not have to re-embed every listing.
+
+    Each file is written to a temporary name and renamed into place; the metadata file is renamed
+    last, so a reader that finds metadata always finds the matching index (it also checks the count).
+    """
+    os.makedirs(directory, exist_ok=True)
+    index_path = os.path.join(directory, INDEX_FILE)
+    meta_path = os.path.join(directory, META_FILE)
+
+    faiss.write_index(snapshot.index, index_path + ".tmp")
+    meta = {
+        "format": FORMAT_VERSION,
+        "model": snapshot.model,
+        "dim": snapshot.dim,
+        "version": snapshot.version,
+        "built_at": snapshot.built_at,
+        "ids": list(snapshot.ids),
+        "fingerprints": snapshot.fingerprints,
+        "docs": snapshot.docs,
+    }
+    with open(meta_path + ".tmp", "w", encoding="utf-8") as handle:
+        json.dump(meta, handle)
+
+    os.replace(index_path + ".tmp", index_path)
+    os.replace(meta_path + ".tmp", meta_path)
+
+
+def load_snapshot(directory: str) -> Optional[IndexSnapshot]:
+    """Read a saved snapshot, or return None if it is missing, unreadable or inconsistent."""
+    index_path = os.path.join(directory, INDEX_FILE)
+    meta_path = os.path.join(directory, META_FILE)
+    if not (os.path.exists(index_path) and os.path.exists(meta_path)):
+        return None
+    try:
+        with open(meta_path, "r", encoding="utf-8") as handle:
+            meta = json.load(handle)
+        if meta.get("format") != FORMAT_VERSION:
+            return None
+        index = faiss.read_index(index_path)
+        ids = tuple(meta["ids"])
+        if index.ntotal != len(ids) or index.d != meta["dim"]:
+            return None
+        return IndexSnapshot(
+            index=index,
+            ids=ids,
+            positions={listing_id: pos for pos, listing_id in enumerate(ids)},
+            docs={listing_id: meta["docs"][listing_id] for listing_id in ids},
+            fingerprints={listing_id: meta["fingerprints"][listing_id] for listing_id in ids},
+            model=meta["model"],
+            dim=int(meta["dim"]),
+            version=int(meta["version"]),
+            built_at=float(meta["built_at"]),
+        )
+    except Exception:
+        return None
